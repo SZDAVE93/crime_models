@@ -2,7 +2,7 @@
 """
 Created on Tue Jun 19 16:42:17 2018
 
-@author: yifei
+@author: szdave
 """
 
 import torch.nn as nn
