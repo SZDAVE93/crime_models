@@ -9,4 +9,8 @@ TCP_model:
 
 please refer to paper: Xiangyu Zhao and Jiliang Tang. "Modeling temporal-spatial correlations for crime prediction". In Proceedings of the 2017 ACM on Conference on Information and Knowledge Management, pages 497–506. ACM, 2017
 
-NN_CCRF_model is the newly proposed model for predicting crime numbers using a neural network based CCRF model.
+NN_CCRF_model:
+
+Is the newly proposed model for predicting crime numbers using a neural network based CCRF model.
+
+And paper describing NN_CCRF_model is just accepted by IJCAI 2019, which named "Neural Network based Continuous Conditional Random Field for Fine-grained Crime Prediction"
