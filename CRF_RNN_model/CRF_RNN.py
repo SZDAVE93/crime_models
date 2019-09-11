@@ -22,10 +22,10 @@ class CRF_RNN(nn.Module):
         super(CRF_RNN, self).__init__()
         self.latent = latent
         dim_factor = kernel_size[0]
-        self.latent_factor = nn.ModuleList([nn.Linear(dim_factor, dim_factor, bias=False) for j in range(D_in)])
-        self.feature_linear_layer = nn.Linear(F_in[0], F_in[1], bias=False)
-        self.linear_layer = nn.Linear(D_in, 1, bias=False)
-        self.linear_factor = nn.Linear(1, 1, bias=False)
+        self.latent_factor = nn.ModuleList([nn.Linear(dim_factor, dim_factor, bias=False).cuda() for j in range(D_in)])
+        self.feature_linear_layer = nn.Linear(F_in[0], F_in[1], bias=False).cuda()
+        self.linear_layer = nn.Linear(D_in, 1, bias=False).cuda()
+        self.linear_factor = nn.Linear(1, 1, bias=False).cuda()
         # parameter initialize
         constant = True
         self.cons_a = 1e-2
@@ -56,20 +56,17 @@ class CRF_RNN(nn.Module):
         Init.normal_(self.linear_factor.weight.data, mean_b, std)
         
     
-    def kernel_modification_layer(self, g_kernels, cuda):
+    def kernel_modification_layer(self, g_kernels):
         '''
         factors for each kernel that modify the weights
         '''
         n, n, k = g_kernels.shape
-        if cuda:
-            kernels = torch.randn(n, n, k).cuda()
-        else:
-            kernels = torch.randn(n, n, k)
+        kernels = torch.randn(n, n, k).cuda()
         for i in range(0, k):
             kernels[:, :, i] = self.latent_factor[i].forward(g_kernels[:,:,i])
         return kernels
     
-    def static_conv_layer(self, inputs, g_kernels, cuda):
+    def static_conv_layer(self, inputs, g_kernels):
         '''
         calculate the results of inputs convoluted by M static filters (Gaussian kernels)
         
@@ -82,12 +79,9 @@ class CRF_RNN(nn.Module):
         n = g_kernels.shape[0]
         k = g_kernels.shape[2]
         t = inputs.shape[0]
-        if cuda:
-            outputs = torch.zeros(t, n, k).cuda()
-        else:
-            outputs = torch.zeros(t, n, k)
+        outputs = torch.zeros(t, n, k).cuda()
         for i in range(0, k):
-            t_kernel = g_kernels[:, :, i].view(n, n, 1)
+            t_kernel = g_kernels[:, :, i].view(n, n, 1).cuda()
             t_result = self.Con1D(inputs, t_kernel)
             outputs[:, :, i] = t_result[:, :, 0]
     
@@ -98,36 +92,30 @@ class CRF_RNN(nn.Module):
         outputs = self.feature_linear_layer.forward(inputs)
         return outputs
     
-    def linear_combine(self, inputs, cuda):
+    def linear_combine(self, inputs):
         
         t, n, k = inputs.shape
-        if cuda:
-            outputs = torch.zeros(t, n, 1).cuda()
-        else:
-            outputs = torch.zeros(t, n, 1)
+        outputs = torch.zeros(t, n, 1).cuda()
         for i in range(0, n):
             outputs[:, i, :] = self.linear_layer[i].forward(inputs[:, i, :])
         
         return outputs
             
-    def forward(self, inputs, kernels, cuda):
+    def forward(self, inputs, kernels):
         
+        self.crf_kernels = kernels
         t, n, m = inputs.shape
         inputs = self.feature_layer(inputs)
-        if cuda:
-            all_ones = torch.ones(t, n, 1).cuda()
-            feature_ones = torch.ones(t, n, m).cuda()
-        else:
-            all_ones = torch.ones(t, n, 1)
-            feature_ones = torch.ones(t, n, m)
+        all_ones = torch.ones(t, n, 1).cuda()
+        feature_ones = torch.ones(t, n, m).cuda()
         f_weights = self.feature_layer(feature_ones)
         orginals = inputs
             
         for k in range(0, self.rnn_num):
             if self.latent:
-                kernels = self.kernel_modification_layer(kernels, cuda)
-            layer_11 = self.static_conv_layer(inputs, kernels, cuda)
-            layer_12 = self.static_conv_layer(all_ones, kernels, cuda)
+                kernels = self.kernel_modification_layer(kernels)
+            layer_11 = self.static_conv_layer(inputs, kernels)
+            layer_12 = self.static_conv_layer(all_ones, kernels)
             layer_21 = 2 * self.linear_layer.forward(layer_11)
             layer_22 = 2 * self.linear_layer.forward(layer_12)
             layer_31 = orginals + layer_21
@@ -136,49 +124,61 @@ class CRF_RNN(nn.Module):
             
             outputs = inputs
         
-        return outputs    
-
-def train(ccrf_Y, ccrf_x, t_ccrf_s, g_kernels, epcho, lr, rnn_layer, ccrf_s, T_cuda):
+        return outputs
     
-    t, n, m = ccrf_x.shape        
-    if t_ccrf_s == False:
-        M = g_kernels.shape[2]
-    else:
-        M = g_kernels.shape[2] + 1
+    def predict(self, eval_x, m_model):
+        
+        linear_predicts = torch.from_numpy(eval_x).float().cuda()
+        crf_kernels = m_model.crf_kernels.cuda()
+        
+        results = m_model.forward(linear_predicts, crf_kernels).cpu()
+        results = results.detach().numpy()[:,:,0].T
+    
+        return results
+    
+    def predict_iter(self, eval_x, m_model):
+        
+        t, num_regions, seq_len = eval_x.shape
+        iter_x = eval_x[0, :, :].reshape([1, num_regions, seq_len])
+        
+        pred_y = np.zeros([num_regions, 1])
+        crf_kernels = m_model.crf_kernels.cuda()
+        for i in range(0, t):
+            linear_predicts = torch.from_numpy(iter_x).float().cuda()
+            pred_y_tmp = m_model.forward(linear_predicts, crf_kernels).cpu()
+            pred_y_tmp = pred_y_tmp.detach().numpy()[:,:,0].T
+            pred_y = np.append(pred_y, pred_y_tmp, axis=1)
+            iter_x = np.append(iter_x[:, :, 1:seq_len], pred_y_tmp.reshape([1, num_regions, 1]), axis=2)
+    
+        pred_y = pred_y[:, 1:t+1]
+        return pred_y
+        
+
+def train(train_y, train_x, lr, iters, threshold, crf_kernels, rnn_layers):
+    
+    t, n, m = train_x.shape
+    M = crf_kernels.shape[2]
     F = (m, 1)
     
-    m_crfRnn = CRF_RNN(rnn_layer, F, M, latent=True, kernel_size=(g_kernels.shape[0], g_kernels.shape[0]))
+    m_crfRnn = CRF_RNN(rnn_layers, F, M, latent=True, 
+                       kernel_size=(crf_kernels.shape[0], crf_kernels.shape[0]))
+    
     
     m_loss = torch.nn.MSELoss()
-    m_optimizer = torch.optim.Adam(m_crfRnn.parameters(), lr=lr)
+    m_optimizer = torch.optim.SGD(m_crfRnn.parameters(), lr=lr)
     t_loss = np.inf
-    threshold = 1e-5
     
-    inputs = torch.from_numpy(ccrf_x).float()
-    targets = torch.from_numpy(ccrf_Y.T).float().reshape([t, n, 1])
+    inputs = torch.from_numpy(train_x).float().cuda()
+    targets = torch.from_numpy(train_y.T).float().reshape([t, n, 1]).cuda()
+    crf_kernels = torch.from_numpy(crf_kernels).float().cuda()
     
-    if t_ccrf_s:
-        temp_k = np.sum(ccrf_s, axis=0).reshape([n, n, 1]) / t
-        g_kernels = np.append(g_kernels, temp_k, axis=2)
-    g_kernels = torch.from_numpy(g_kernels).float()
-    
-    if T_cuda:
-        print("Using GPU:")
-        inputs = inputs.cuda()
-        targets = targets.cuda()
-        g_kernels = g_kernels.cuda()
-        m_crfRnn = m_crfRnn.cuda()
-    else:
-        print("Using CPU:")
-    
-    for i in range(0, epcho):
+    for i in range(0, iters):
         m_optimizer.zero_grad()
-        outputs = m_crfRnn.forward(inputs, g_kernels, T_cuda)
+        outputs = m_crfRnn.forward(inputs, crf_kernels)
         loss = m_loss(outputs, targets)
         loss.backward()
         m_optimizer.step()
-        if i%100 == 0:
-            print(loss.data[0])
+        print(loss.data[0])
         if np.abs(t_loss - loss.data[0]) > threshold and t_loss > loss.data[0]:
             t_loss = loss.data[0]
         else:
@@ -187,21 +187,13 @@ def train(ccrf_Y, ccrf_x, t_ccrf_s, g_kernels, epcho, lr, rnn_layer, ccrf_s, T_c
     
     return m_crfRnn
 
-def predict(linear_predicts, model, g_kernels, t_ccrf_s, ccrf_s, T_cuda):
+def predict(eval_x, model, crf_kernels):
     
-    t, n, m = linear_predicts.shape
-    linear_predicts = torch.from_numpy(linear_predicts).float()
-    if t_ccrf_s:
-        temp_k = np.sum(ccrf_s, axis=0).reshape([n, n, 1]) / t
-        g_kernels = np.append(g_kernels, temp_k, axis=2)
-    g_kernels = torch.from_numpy(g_kernels).float()
-    
-    if T_cuda:
-        linear_predicts = linear_predicts.cuda()
-        g_kernels = g_kernels.cuda()
+    linear_predicts = torch.from_numpy(eval_x).float().cuda()
+    crf_kernels = torch.from_numpy(crf_kernels).float().cuda()
         
-    results = model.forward(linear_predicts, g_kernels, T_cuda).cpu()
-    results = results.detach().numpy()[:,:,0]
+    results = model.forward(linear_predicts, crf_kernels).cpu()
+    results = results.detach().numpy()[:,:,0].T
     
     return results
 

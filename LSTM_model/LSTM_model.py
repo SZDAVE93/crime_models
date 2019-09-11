@@ -10,84 +10,70 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.init as Init
 
-
 class mLSTM(nn.Module):
     
-    # inputs.shape: t * n, t = dim_batch, n = dim_inputs
-    def __init__(self, dim_batch, dim_inputs, dim_hidden):
+    def __init__(self, dim_inputs, dim_hidden, batch_size, num_layers=2, 
+                dim_output=77, seq_len=7):
         
         super(mLSTM, self).__init__()
-        self.lstm1 = nn.LSTMCell(dim_inputs, dim_hidden)
-        self.lstm2 = nn.LSTMCell(dim_hidden, dim_hidden)
-        self.hidden_linear = nn.Linear(dim_hidden, dim_inputs, bias=True)
-        self.time_linear = nn.Linear(dim_batch, 1)
+        self.dim_inputs = dim_inputs
+        self.dim_hidden = dim_hidden
+        self.batch_size = batch_size
+        self.num_layers = num_layers
+        self.dim_output = dim_output
+        self.seq_len = seq_len
         
-        t_constant = 1e-2
-        Init.constant_(self.lstm1.weight_hh.data, t_constant)
-        Init.constant_(self.lstm1.weight_ih.data, t_constant)
-        Init.constant_(self.lstm2.weight_hh.data, t_constant)
-        Init.constant_(self.lstm2.weight_ih.data, t_constant)
-        Init.constant_(self.hidden_linear.weight.data, t_constant)
-        Init.constant_(self.time_linear.weight.data, t_constant)
-        
-        self.h_t1 = torch.zeros(dim_batch, dim_hidden)
-        self.c_t1 = torch.zeros(dim_batch, dim_hidden)
-        self.h_t2 = torch.zeros(dim_batch, dim_hidden)
-        self.c_t2 = torch.zeros(dim_batch, dim_hidden)
-        
+        self.lstm = nn.LSTM(self.dim_inputs, self.dim_hidden, self.num_layers).cuda()
+        self.hidden_linear = nn.Linear(self.dim_hidden, self.dim_output).cuda()
         
     def forward(self, inputs):
         
-        epcho, t, n = inputs.shape
-        outputs = torch.zeros(epcho, n, t)
-        for i in range(0, epcho):
-            self.h_t1, self.c_t1 = self.lstm1(inputs[i,:,:], (self.h_t1, self.c_t1))
-            self.h_t2, self.c_t2 = self.lstm2(self.h_t1, (self.h_t2, self.c_t2))
-            outputs[i, :, :] = torch.t(self.hidden_linear.forward(self.h_t2))
-        outputs = self.time_linear.forward(outputs)[:,:,0]
-        return outputs
+        lstm_out, self.hidden_states = self.lstm(inputs)
+        outputs = self.hidden_linear(lstm_out[-1])
         
-
-def train(ccrf_x, ccrf_y, dim_hidden, epcho, lstm_lr, threshold):
+        return outputs
     
-    t, n, m = ccrf_x.shape
+    def predict_iter(self, eval_x, m_model):
+        
+        t, num_regions, seq_len = eval_x.shape
+        eval_x = eval_x.transpose(2, 0, 1)
+        inputs = torch.from_numpy(eval_x[:, 0, :].reshape(seq_len, 1, num_regions)).float().cuda()
+        pred_y = m_model.forward(inputs).cpu().detach().numpy()
+        iter_x = np.append(eval_x[:, 0, :].reshape(seq_len, num_regions)[1:seq_len], pred_y, axis=0)
+        for i in range(1, t):
+            inputs = torch.from_numpy(iter_x.reshape(seq_len, 1, num_regions)).float().cuda()
+            pred_y_tmp = m_model.forward(inputs).cpu().detach().numpy()
+            pred_y = np.append(pred_y, pred_y_tmp, axis=0)
+            iter_x = np.append(iter_x[1:seq_len], pred_y_tmp, axis=0)
+        pred_y = pred_y.T
+        return pred_y
 
-    m_LSTM = mLSTM(m, n, dim_hidden) 
+def train(train_x, train_y, lr, iters, threshold, dim_hidden, num_layers):
+    
+    batch_size, dim_input, seq_len = train_x.shape
+
+    m_LSTM = mLSTM(dim_inputs=dim_input, dim_hidden=dim_hidden, batch_size=batch_size,
+                   num_layers=num_layers, dim_output=dim_input)
     m_loss = torch.nn.MSELoss()
-    m_optimizer = torch.optim.SGD(m_LSTM.parameters(), lr=lstm_lr)
+    m_optimizer = torch.optim.SGD(m_LSTM.parameters(), lr=lr)
     t_loss = np.inf
-    inputs = np.zeros([t, m, n])
+    inputs = train_x.transpose(2, 0, 1)
     
-    for i in range(t):
-        inputs[i, :, :] = ccrf_x[i, :, :].T
+    inputs = torch.from_numpy(inputs).float().cuda()
+    targets = torch.from_numpy(train_y.T).float().cuda()
     
-    inputs = torch.from_numpy(inputs).float()
-    targets = torch.from_numpy(ccrf_y.T).float()
-    
-    for i in range(0, epcho):
+    for i in range(0, iters):
         m_optimizer.zero_grad()
         outputs = m_LSTM.forward(inputs)
         loss = m_loss(outputs, targets)
         loss.backward(retain_graph=True)
         m_optimizer.step()
-        #print(loss.data[0])
+        if i%100 == 0:
+            print(loss.data[0])
         if t_loss > loss.data[0] and np.abs(t_loss - loss.data[0]) > threshold:
             t_loss = loss.data[0]
         else:
-            print("Done!")
+            print("minimized!")
             break
     
-    return m_LSTM
-
-def predict(model, eval_x):
-    
-    t, n, m = eval_x.shape
-    inputs = np.zeros([t, m, n])
-    for i in range(t):
-        inputs[i, :, :] = eval_x[i, :, :].T
-    inputs = torch.from_numpy(inputs).float()
-    
-    predicts = model.forward(inputs).detach().numpy()
-    return predicts
-
-    
+    return m_LSTM    

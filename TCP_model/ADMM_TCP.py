@@ -126,7 +126,7 @@ class TCP:
         
         return m_loss, regulation
     
-    def ADMM_Optimization(self, lr=1e-3, epcho=1000, threshold_wkn=1e-5):
+    def ADMM_Optimization(self, lr=1e-3, epcho=1000, threshold_wkn=1e-3):
         
         K, N, M = self.X.shape
         W, E, U, F, V = self.Init_Parameters(K, N, M)
@@ -143,15 +143,14 @@ class TCP:
             m_loss, regulation = self.measure_loss(W, E, U, F, V)
             if m_loss < loss:
                 loss = m_loss
-                #print("Loss:\t%.5f\tRegulation:\t%.5f" % (m_loss, regulation))
-                #print("Loss:\t%.5f" % m_loss)
+                print("Loss:\t%.5f\tRegulation:\t%.5f" % (m_loss, regulation))
             else:
-                #print("RMSE_loss:\t%.5f" % np.sqrt((m_loss - regulation) / (K * N)))
-                print("Minimized!")
+                print("RMSE_loss:\t%.5f" % np.sqrt((m_loss - regulation) / (K * N)))
+                print("minimized!")
                 break
         return W
     
-    def W_Optimization(self, lag_days, W, lr=1e-2, epcho=50000):
+    def W_Optimization(self, lag_days, W, lr=1e-3, epcho=1000):
         
         K, N, M = self.X.shape
         m_W = np.zeros([M, N, K])
@@ -178,7 +177,7 @@ class TCP:
             m_optimizer.step()
             if loss.data[0] < t_loss:
                 t_loss = loss.data[0]
-                #print(loss.data[0])
+                print(loss.data[0])
             else:
                 print("Minimized!")
                 break

@@ -28,45 +28,51 @@ def build_Q(m_lambda, K):
         Q[i+1, i] = - m_lambda
     return Q
 
-def Predict(W, data_x, W_model, lag_days):
+def predict_iter(eval_x, m_model, lag_days):
     
-    K, N, M = data_x.shape
+    W = m_model[0]
+    W_model = m_model[1]
+    K, N, M = eval_x.shape
     Len_w = W.shape[0]
     new_W = np.zeros([M, N, K+lag_days])
     for i in range(0, lag_days):
         new_W[:, :, i] = W[Len_w-lag_days+i, :, :]
-    predict_Y = np.zeros([N, K])
+    pred_y = np.zeros([N, 1])
+    iter_x = eval_x[0, :, :]
         
     for i in range(lag_days, K+lag_days):
         in_W = torch.from_numpy(new_W[:, :, i-lag_days:i]).float()
-        in_X = torch.from_numpy(data_x[i-lag_days, :, :]).float()
+        in_X = torch.from_numpy(iter_x).float()
         out_W = W_model.forward(in_W)
         out_Y = torch.diag(in_X.mm(out_W[:, :, 0])).reshape([N, 1])
-        predict_Y[:, i-lag_days] = out_Y.detach().numpy()[:, 0]
+        pred_y_tmp = out_Y.detach().numpy()
+        pred_y = np.append(pred_y, pred_y_tmp, axis=1)
         new_W[:, :, i] = out_W.detach().numpy()[:, :, 0]
+        iter_x = np.append(iter_x[:, 1:M], pred_y_tmp, axis=1)
     
-    return predict_Y
+    pred_y = pred_y[:, 1:K+1]
+    return pred_y
 
-def train(lr, epcho, train_X, train_Y, A_map_kernels, lag_days):
+def train(train_x, train_y, lr, iters, threshold, tcp_kernel, lag_days, lamda, theta):
     
-    K, N, M = train_X.shape
-    m_lambda = 1e-1 # temporal relationship factor: lagging correlaion
-    m_theta = 1e-3 # control the influence of regulation
+    K, N, M = train_x.shape
+    m_lambda = 10**(-lamda) # temporal relationship factor: lagging correlaion
+    m_theta = 10**(-theta) # control the influence of regulation
     
-    matrix = A_map_kernels[:,:,1]
+    matrix = tcp_kernel
     TCP_P = build_P(matrix, N)
     TCP_Q = build_Q(m_lambda, K)
     
     print("learning weights:")
-    TCP_model = ADMM_TCP.TCP(train_Y, train_X, TCP_P, TCP_Q, theta=m_theta)
-    TCP_W = TCP_model.ADMM_Optimization(lr=lr, epcho=epcho, threshold_wkn=1e-7)
+    TCP_model = ADMM_TCP.TCP(train_y, train_x, TCP_P, TCP_Q, theta=m_theta)
+    TCP_W = TCP_model.ADMM_Optimization(lr=lr, epcho=iters, threshold_wkn=threshold)
     
     print("learning weights correlations:")
-    m_model = TCP_model.W_Optimization(lag_days, TCP_W, epcho=epcho)
+    m_model = TCP_model.W_Optimization(lag_days, TCP_W, lr=lr, epcho=iters)
     
     #print("predicting:")
     #predict_Y = TPC_model.Predict(TPC_W, eval_X, m_model, lag_days)
     
-    return TCP_W, m_model
+    return (TCP_W, m_model)
     
     
