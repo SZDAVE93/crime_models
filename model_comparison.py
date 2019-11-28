@@ -16,8 +16,8 @@ from LSTM_model import LSTM_model
 from NN_CCRF_model import NN_CCRF
 from Linear_model import linear_regression
 
-sys.path.append(r'D:\yifei\Documents\Codes_on_GitHub\Clustered_CCRF_model')
-import build_relation_y2y
+#sys.path.append(r'D:\yifei\Documents\Codes_on_GitHub\Clustered_CCRF_model')
+#import build_relation_y2y
 
 def method(tpc_kernel, crf_kernel, train_data, eval_data):
     
@@ -61,7 +61,7 @@ def method(tpc_kernel, crf_kernel, train_data, eval_data):
     '''
     # learn simple linear model
     print("Learning Linear model:")
-    linear_model = linear_regression.train(train_x, train_y, epcho, lr_linear, threshold)
+    linear_model = linear_regression.train(train_x, train_y, lr_linear, epcho, threshold)
     predicts_linear = linear_regression.predict(eval_x, linear_model).T
     # learn lstm model
     print("Learning LSTM model:")
@@ -147,9 +147,10 @@ if __name__ == "__main__":
     path = os.getcwd()
     
     crime_ID = 0
-    city_ID = 0
+    city_ID = 1
     
     kernels = np.load(path + '/data/' + city_name[city_ID] + '/kernels.npy')
+    tcp_kernel = np.load(path + '/data/' + city_name[city_ID] + '/All_kernels.npy')[:, :, 0]
     train_x = np.load(path + '/data/' + city_name[city_ID] + '/'+ crime_type[crime_ID] + '_train_x.npy')
     train_y = np.load(path + '/data/' + city_name[city_ID] + '/'+ crime_type[crime_ID] + '_train_y.npy')
     train_s = np.load(path + '/data/' + city_name[city_ID] + '/'+ crime_type[crime_ID] + '_train_s.npy')
@@ -159,7 +160,7 @@ if __name__ == "__main__":
 
     
     print("CITY:\t%s\tCRIME_TYPE:\t%s" %(city_name[city_ID], crime_type[crime_ID]))
-    method(kernels, (train_x, train_y, train_s), (eval_x, eval_y, eval_s))
+    method(kernels, tcp_kernel, (train_x, train_y, train_s), (eval_x, eval_y, eval_s))
     '''
     
     # load community area basd data, only support Chicago

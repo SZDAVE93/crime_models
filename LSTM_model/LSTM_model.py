@@ -68,7 +68,7 @@ def train(train_x, train_y, lr, iters, threshold, dim_hidden, num_layers):
         loss = m_loss(outputs, targets)
         loss.backward(retain_graph=True)
         m_optimizer.step()
-        if i%100 == 0:
+        if i%1 == 0:
             print(loss.data[0])
         if t_loss > loss.data[0] and np.abs(t_loss - loss.data[0]) > threshold:
             t_loss = loss.data[0]

@@ -21,7 +21,7 @@ class m_ARMA():
         for i in range(0, n):
             train_x = seq_x[i, :]
             AR_model = sm.tsa.ARMA(train_x, (self.AR_factor, 
-                                             self.MA_factor)).fit(method='css-mle', disp=False)
+                                             self.MA_factor)).fit(method='css-mle', trend='nc', disp=False)
             models.extend([AR_model])
         return models
     

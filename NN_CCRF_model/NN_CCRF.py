@@ -49,6 +49,23 @@ class NN_CCRF(nn.Module):
         predicts = outputs.detach().numpy().T
         return predicts
     
+    def predict_iter(self, eval_x, m_model):
+        
+        t, seq_len, num_regions = eval_x.shape
+        eval_x = eval_x.transpose(1, 0, 2)
+        inputs = torch.from_numpy(eval_x[:, 0, :].reshape(seq_len, 1, num_regions)).float().cuda()
+        pred_y = m_model.forward(inputs).cpu().detach().numpy()
+        iter_x = np.append(eval_x[:, 0, :].reshape(seq_len, num_regions)[1:seq_len], pred_y, axis=0)
+        
+        for i in range(1, t):
+            inputs = torch.from_numpy(iter_x.reshape(seq_len, 1, num_regions)).float().cuda()
+            pred_y_tmp = m_model.forward(inputs).cpu()
+            pred_y_tmp = pred_y_tmp.detach().numpy()
+            pred_y = np.append(pred_y, pred_y_tmp, axis=0)
+            iter_x = np.append(iter_x[1:seq_len], pred_y_tmp, axis=0)
+        pred_y = pred_y.T
+        return pred_y
+    
 def train_m(train_x, train_y, lr, iters, threshold, feature_model, rnn_layers):
     
     dim_in = train_y.shape[0]

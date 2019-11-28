@@ -85,10 +85,12 @@ class m_Builder():
                 lstm = LSTM_model.train(train_x = x.transpose(0, 2, 1),
                                         train_y = y, 
                                         lr = self.learning_rate,
-                                        iters = 1,
+                                        iters = 10,
                                         threshold = self.threshold,
-                                        dim_hidden = hyper_parameters[0])
-                m_model = NN_CCRF.train_m(train_x = x, train_y = y,
+                                        dim_hidden = hyper_parameters[0],
+                                        num_layers = 1)
+                m_model = NN_CCRF.train_m(train_x = x.transpose(1, 0, 2), 
+                                          train_y = y,
                                           lr = self.learning_rate,
                                           iters = self.iters,
                                           threshold = self.threshold,
@@ -112,6 +114,8 @@ class m_Builder():
                 pred_y = self.model[1].predict_iter(x, m_model)
             elif self.model_name == 'CRFasRNN' or self.model_name == 'LSTM':
                 pred_y = m_model.predict_iter(x, m_model)
+            elif self.model_name == 'NN-CCRF':
+                pred_y = m_model.predict_iter(x, m_model)
             error = (pred_y - true_y)**2
             overall_rmse = np.sqrt(np.sum(error) / num)
             overall_std = np.std(np.sqrt(np.sum(error, axis=0) / n))
@@ -126,7 +130,7 @@ class m_Builder():
             overall_rmse = -1
             overall_std = -1
         
-        return overall_rmse, overall_std
+        return overall_rmse, overall_std, pred_y, true_y
         
             
             
