@@ -14,33 +14,32 @@ class NN_CCRF(nn.Module):
     def __init__(self, feature_model, dim_inputs, num_layer):
         
         super(NN_CCRF, self).__init__()
+        self.num_layer = num_layer
         self.feature_model = feature_model.cuda()
-        self.kernel = nn.Linear(dim_inputs, dim_inputs, bias=True).cuda()
+        self.kernel = nn.Linear(dim_inputs, dim_inputs, bias=False).cuda()
         self.weights_feature_pairwise = nn.Linear(2, 1, bias=True).cuda()
         
         m_constant = 1e-2
         Init.constant_(self.kernel.weight.data, m_constant)
-        Init.constant_(self.weights_feature_pairwise.weight.data, m_constant)
+        Init.constant_(self.weights_feature_pairwise.weight.data, 0.5)
         # building the iteration process as an RNN framework
         self.pairwise_model = nn.Sequential().cuda()
         for i in range(num_layer):
             self.pairwise_model.add_module("K"+str(i), self.kernel)
+            self.pairwise_model.add_module("R"+str(i), nn.ReLU())
         
     def forward(self, inputs):
         
-        # inputs should have the required dimension from different feature model
-        # feature model should always output data in t * n dimensional tensor
         item_feature = self.feature_model.forward(inputs)
-        item_pairwise = self.pairwise_model.forward(item_feature)
         
-        item_feature = torch.unsqueeze(item_feature, 2)
-        item_pairwise = torch.unsqueeze(item_pairwise, 2)
-        items = torch.cat((item_feature, item_pairwise), 2).cuda()
-        outputs = self.weights_feature_pairwise.forward(items)
-        outputs = outputs[:,:,0]
-        
-        #outputs = item_pairwise
-        return outputs
+        for i in range(self.num_layer):
+            item_pairwise = self.pairwise_model.forward(item_feature)
+            item_feature = torch.unsqueeze(item_feature, 2)
+            item_pairwise = torch.unsqueeze(item_pairwise, 2)
+            items = torch.cat((item_feature, item_pairwise), 2).cuda()
+            outputs = self.weights_feature_pairwise.forward(items)
+            item_feature = outputs[:, :, 0]
+        return item_feature
     
     def predict(self, eval_x, m_model):
     

@@ -14,3 +14,10 @@ NN_CCRF_model:
 Is the newly proposed model for predicting crime numbers using a neural network based CCRF model.
 
 And paper describing NN_CCRF_model is just accepted by IJCAI 2019, which named "Neural Network based Continuous Conditional Random Field for Fine-grained Crime Prediction"
+
+
+Code notations:
+
+run *.bat file can train and eval each model with corresponding results
+
+'DataBuilder.py' can be only applied when raw sequential data is available

@@ -34,21 +34,24 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_name', type=str, default='Linear',
                         help='model name (default: Linear)')
-    parser.add_argument('--train_end', type=int, default=760,
-                        help='end date of training dataset (default: 760)')
-    parser.add_argument('--train_days', type=int, default=180,
-                        help='num of train days (default: 180)')
-    parser.add_argument('--eval_days', type=int, default=21,
-                        help='num of eval days (default: 30), but this is for one day prediction')
     parser.add_argument('--ar_days', type=int, default=7,
                         help='historical days in prediction (default: 7)')
     parser.add_argument('--kernel_names', type=str, default='dis', nargs='+',
                         help='kernel type for inference (default: dis)')
-    parser.add_argument('--simi_len', type=int, default=30,
-                        help='days for building dis kernel (default: 30)')
+    # sequential data file path
     parser.add_argument('--data_path', type=str, 
                         default="D:/yifei/Documents/Codes_on_GitHub/External_data/CHI_Region/",
                         help='data path')
+    # settings of data preprocessing for training and evaluation when sequential data is available
+    parser.add_argument('--train_end', type=int, default=910,
+                        help='end date of training dataset (default: 910)')
+    parser.add_argument('--train_days', type=int, default=180,
+                        help='num of train days (default: 180)')
+    parser.add_argument('--eval_days', type=int, default=21,
+                        help='num of eval days (default: 21)')
+    parser.add_argument('--simi_len', type=int, default=90,
+                        help='days for building dis kernel (default: 90)')
+    
     parser.add_argument('--learning_rate', type=float, default=1e-2)
     parser.add_argument('--iters', type=int, default=100)
     parser.add_argument('--threshold', type=float, default=1e-3)
@@ -73,14 +76,37 @@ if __name__ == "__main__":
         is_nnccrf = False
     if model_name == 'ARMA':
         ar_days = hyper_parameters[0]
-    # load training and evaluation dataset
+    
+    # Build training and evaluation dataset when you have sequential data
+    '''
     m_dataBuilder = d_Builder(data_path, ar_days, 
                  train_end, train_days, eval_days)
     (train_x, train_y), (eval_x, eval_y) = m_dataBuilder.load_xy(is_nnccrf)
+    '''
+    
+    path = os.getcwd()
+    
+    # Load preprocessed dataset
+    # train_days = 180, eval_days = 21, simi_len = 90
+    if is_nnccrf:
+        train_x = np.load(r'{}\data\nnccrf\train_x.npy'.format(path))
+        train_y = np.load(r'{}\data\nnccrf\train_y.npy'.format(path))
+        eval_x = np.load(r'{}\data\nnccrf\eval_x.npy'.format(path))
+        eval_y = np.load(r'{}\data\nnccrf\eval_y.npy'.format(path))
+        
+    else:
+        train_x = np.load(r'{}\data\non-nnccrf\train_x.npy'.format(path))
+        train_y = np.load(r'{}\data\non-nnccrf\train_y.npy'.format(path))
+        eval_x = np.load(r'{}\data\non-nnccrf\eval_x.npy'.format(path))
+        eval_y = np.load(r'{}\data\non-nnccrf\eval_y.npy'.format(path))
+        
+    
     if model_name == 'TCP':
-        tcp_kernel = m_dataBuilder.load_tcp_kernel(kernel_names)
+        #tcp_kernel = m_dataBuilder.load_tcp_kernel(kernel_names)
+        tcp_kernel = np.load(r'{}\data\kernel_tcp.npy'.format(path))
     if model_name == 'CRFasRNN':
-        crf_kernels = m_dataBuilder.load_kernels(kernel_names, simi_len)
+        #crf_kernels = m_dataBuilder.load_kernels(kernel_names, simi_len)
+        crf_kernel = np.load(r'{}\data\kernel_crf.npy'.format(path))
     
     # Train the model
     m_modelBuilder = m_Builder(model_name, learning_rate, iters, threshold)
@@ -89,8 +115,7 @@ if __name__ == "__main__":
         hyper_parameters.extend([tcp_kernel])
     if model_name == 'CRFasRNN':
         hyper_parameters = [hyper_parameters]
-        hyper_parameters.extend([crf_kernels])
-    print(hyper_parameters)
+        hyper_parameters.extend([crf_kernel])
     m_modelBuilder.train_model(hyper_parameters, train_x, train_y)
     rmse, rmse_std, pred_y, true_y = m_modelBuilder.eval_model(eval_x, eval_y)
     
@@ -126,10 +151,12 @@ if __name__ == "__main__":
     if rmse != -1 and rmse is not None:
         if model_name == 'TCP' or model_name == 'CRFasRNN':
             hyper_parameters = hyper_parameters[0]
-        file = open('{}results_{}.txt'.format(data_path, model_name), 'a+')
+        file = open(r'{}\data\results_{}.txt'.format(path, model_name), 'a+')
+        # save parameteres and hyper-parameters
         file.write('{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t'.format(train_end, 
                    train_days, eval_days, ar_days, simi_len, kernel_names, learning_rate, 
                    hyper_parameters, iters))
+        # save prediction and ranking results, short-term: rmse_1/7 and long-term rmse_14/21
         file.write('{:.5f}\t{:.5f}\t{:.5f}\t{:.5f}\t'.format(rmse_1, rmse_7, rmse_14, rmse_21))
         file.write('{:.5f}\t{:.5f}\t{:.5f}\t{:.5f}\t{:.5f}\t{:.5f}\t{:.5f}\t{:.5f}\n'.format(
                     results[0, 0], results[0, 1], results[0, 2], results[0, 3],
